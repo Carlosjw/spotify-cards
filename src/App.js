@@ -1,103 +1,86 @@
-import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import React, { useState, useRef } from 'react';
 import './App.css';
-
-// Insira suas credenciais do Spotify aqui
-const SPOTIFY_CLIENT_ID = 'aa7423f25bf7431ca54bc8bdc9f605ce';
-const SPOTIFY_CLIENT_SECRET = '0a315677f87a41f682bbd3544d4c37c9';
 
 const App = () => {
   const [cards, setCards] = useState([]);
   const [formData, setFormData] = useState({
     nome: '',
-    linkDaImagem: '',
-    linkMusicaSpotfy: '',
+    linkDaImagemGoogleDrive: '',
+    linkMusicaGoogleDrive: '',
   });
-  const [spotifyToken, setSpotifyToken] = useState('');
 
-  // Efeito para obter o token de acesso da API do Spotify ao carregar o app
-  useEffect(() => {
-    const fetchSpotifyToken = async () => {
-      try {
-        const response = await axios('https://accounts.spotify.com/api/token', {
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'Authorization': `Basic ${btoa(`${SPOTIFY_CLIENT_ID}:${SPOTIFY_CLIENT_SECRET}`)}`,
-          },
-          data: 'grant_type=client_credentials',
-          method: 'POST',
-        });
-        setSpotifyToken(response.data.access_token);
-      } catch (error) {
-        console.error("Erro ao autenticar com o Spotify", error);
-      }
-    };
-
-    fetchSpotifyToken();
-  }, []);
+  // useRef para manter a referência do áudio tocando no momento
+  const audioRef = useRef(null);
+  const [currentPlayingCardId, setCurrentPlayingCardId] = useState(null);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     setFormData({ ...formData, [name]: value });
   };
-
-  // Função para extrair o ID da música a partir do link do Spotify
-  const getTrackIdFromUrl = (url) => {
-    try {
-      const path = new URL(url).pathname;
-      const parts = path.split('/');
-      return parts[parts.length - 1];
-    } catch (error) {
-      return null;
+  
+  // Função para converter o link de compartilhamento do Google Drive em um link direto
+  const convertGoogleDriveLink = (url) => {
+    const regex = /drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/;
+    const match = url.match(regex);
+    if (match && match[1]) {
+      const fileId = match[1];
+      return `https://drive.google.com/uc?export=view&id=${fileId}`;
     }
+    // Retorna a URL original se não for um link válido do Drive
+    return url;
   };
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = (e) => {
     e.preventDefault();
-    if (!formData.nome || !formData.linkDaImagem || !formData.linkMusicaSpotfy) {
+    if (!formData.nome || !formData.linkDaImagemGoogleDrive || !formData.linkMusicaGoogleDrive) {
       alert('Por favor, preencha todos os campos.');
       return;
     }
 
-    const trackId = getTrackIdFromUrl(formData.linkMusicaSpotfy);
-    if (!trackId) {
-      alert('O link da música do Spotify parece ser inválido.');
+    // Converte os links do Google Drive para links diretos
+    const directImageUrl = convertGoogleDriveLink(formData.linkDaImagemGoogleDrive);
+    const directMusicUrl = convertGoogleDriveLink(formData.linkMusicaGoogleDrive);
+
+    const newCard = {
+      id: Date.now(),
+      nome: formData.nome,
+      imagem: directImageUrl,
+      musicaUrl: directMusicUrl,
+    };
+
+    setCards([...cards, newCard]);
+    setFormData({ nome: '', linkDaImagemGoogleDrive: '', linkMusicaGoogleDrive: '' });
+  };
+
+  const handleCardClick = (cardId, musicaUrl) => {
+    // Se o card clicado já estiver tocando, reinicia a música
+    if (currentPlayingCardId === cardId && audioRef.current) {
+      audioRef.current.currentTime = 0;
+      audioRef.current.play();
       return;
     }
 
-    try {
-      const trackInfo = await axios(`https://api.spotify.com/v1/tracks/${trackId}`, {
-        method: 'GET',
-        headers: { 'Authorization': `Bearer ${spotifyToken}` },
-      });
-
-      // NOVO: Salva o link oficial da música no Spotify
-      const newCard = {
-        id: Date.now(),
-        nome: formData.nome,
-        imagem: formData.linkDaImagem,
-        spotifyUrl: trackInfo.data.external_urls.spotify, // Link para abrir no Spotify
-      };
-
-      setCards([...cards, newCard]);
-      setFormData({ nome: '', linkDaImagem: '', linkMusicaSpotfy: '' });
-    } catch (error) {
-      console.error('Erro ao buscar dados da música:', error);
-      alert('Não foi possível obter os dados da música. Verifique o link e tente novamente.');
+    // Se outra música estiver tocando, para ela
+    if (audioRef.current) {
+      audioRef.current.pause();
     }
-  };
-
-  // ALTERADO: Função de clique agora abre o link do Spotify em uma nova aba
-  const handleCardClick = (spotifyUrl) => {
-    if (spotifyUrl) {
-      window.open(spotifyUrl, '_blank', 'noopener,noreferrer');
-    }
+    
+    // Toca a nova música
+    const audio = new Audio(musicaUrl);
+    audioRef.current = audio;
+    // Tratamento de erro caso o link do áudio falhe
+    audio.addEventListener('error', () => {
+        alert("Não foi possível carregar o áudio. Verifique se o link do Google Drive está correto e compartilhado publicamente.");
+        setCurrentPlayingCardId(null);
+    });
+    audioRef.current.play();
+    setCurrentPlayingCardId(cardId);
   };
 
   return (
     <div className="App">
       <header className="App-header">
-        <h1>Crie seu Card de Música Interativo</h1>
+        <h1>Crie seu Card de Música Interativo com Google Drive</h1>
       </header>
       <main>
         <form onSubmit={handleSubmit} className="card-form">
@@ -111,17 +94,17 @@ const App = () => {
           />
           <input
             type="url"
-            name="linkDaImagem"
-            placeholder="URL da Imagem"
-            value={formData.linkDaImagem}
+            name="linkDaImagemGoogleDrive"
+            placeholder="Link da Imagem do Google Drive"
+            value={formData.linkDaImagemGoogleDrive}
             onChange={handleInputChange}
             required
           />
           <input
             type="url"
-            name="linkMusicaSpotfy"
-            placeholder="Link da Música do Spotify"
-            value={formData.linkMusicaSpotfy}
+            name="linkMusicaGoogleDrive"
+            placeholder="Link da Música (MP3) do Google Drive"
+            value={formData.linkMusicaGoogleDrive}
             onChange={handleInputChange}
             required
           />
@@ -129,13 +112,12 @@ const App = () => {
         </form>
         <div className="card-container">
           {cards.map((card) => (
-            // A chamada onClick foi atualizada para usar a nova função
             <div
               key={card.id}
-              className="interactive-card"
-              onClick={() => handleCardClick(card.spotifyUrl)}
+              className={`interactive-card ${currentPlayingCardId === card.id ? 'playing' : ''}`}
+              onClick={() => handleCardClick(card.id, card.musicaUrl)}
             >
-              <img src={card.imagem} alt={card.nome} />
+              <img src={card.imagem} alt={card.nome} onError={(e) => { e.target.onerror = null; e.target.src="URL_IMAGEM_PADRAO_SE_FALHAR"; alert("Erro ao carregar a imagem. Verifique o link e a permissão de compartilhamento.") }}/>
               <div className="card-overlay">
                 <div className="play-icon">▶</div>
               </div>
